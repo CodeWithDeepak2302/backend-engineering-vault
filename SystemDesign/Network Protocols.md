@@ -64,6 +64,23 @@ Multiplexing allows the client and server to interleave multiple requests and re
     
 - **Frames:** The smallest unit of communication (e.g., HEADERS frame, DATA frame).
 
+- Because each frame has a Stream ID, the receiver (browser or server) can receive them in any order and "reassemble" them correctly. If a 5MB image is being sent (Stream 1), the server can "pause" it, inject a few frames of a tiny CSS file (Stream 2), and then resume the image.
+
+_"Does HTTP/2 completely eliminate Head-of-Line Blocking?"_
+
+The answer is **No**.
+
+HTTP/2 solves HOL blocking at the **Application Layer (L7)**, but it still runs on **TCP (L4)**. TCP is a "reliable" protocol. If a single packet in the TCP stream is lost on the wire, TCP stops _everything_ and waits for that packet to be retransmitted before letting the data move to the application.
+
+Even if the lost packet belonged to Stream 1, Stream 2 and Stream 3 are now blocked at the TCP level. This is exactly why **HTTP/3** was created—it moves from TCP to **QUIC (UDP)**, where loss in one stream does not affect others.
+
+|**Feature**|**HTTP/1.1**|**HTTP/2**|
+|---|---|---|
+|**Format**|Plain Text|Binary Frames|
+|**Concurrency**|Sequential (one at a time)|Multiplexed (simultaneous)|
+|**Connections**|Multiple (expensive)|Single (efficient)|
+|**HOL Blocking**|Present at L7 and L4|Present only at L4 (TCP)|
+|**Header Compression**|None (Verbose)|HPACK (Compressed)|
 
 ----
 ### QUIC — HTTP/3's Engine
@@ -82,6 +99,61 @@ WebRTC (Web Real-Time Communication) is a suite of protocols enabling direct bro
 The flow: two peers exchange _SDP offer/answer_ messages (via a signaling server you build), use STUN/TURN to figure out their public addresses, then establish a direct peer-to-peer connection. The signaling channel can be anything — WebSockets, REST, even email. WebRTC defines only what happens _after_ the connection.
 
 **Use when:** Video calls (Google Meet, Jitsi), screen sharing, multiplayer browser games, peer-to-peer file transfer.
+
+## The Core Architecture of QUIC
+
+QUIC changes how we identify a connection. In TCP, a connection is tied to a **4-tuple**: (Source IP, Source Port, Dest IP, Dest Port). If you switch from Wi-Fi to 5G, your IP changes, the TCP connection breaks, and you have to handshake all over again.
+
+- **Connection IDs:** QUIC uses a unique **Connection ID (CID)**. As long as the CID remains the same, the connection stays alive even if your IP address or port changes. This is called **Connection Migration**.
+    
+- **Stream-Level Multiplexing:** As we discussed, QUIC treats every file (CSS, JS, Image) as an independent stream. If a packet for "Stream A" is lost, "Stream B" keeps moving. **TCP-level Head-of-Line blocking is dead here.**
+
+
+## The 1-RTT Handshake (The First Meet)
+
+Before we get to 0-RTT, we need to see how QUIC handles a fresh connection. In the old world, you needed one trip for TCP and two for TLS. QUIC does both at once.
+
+1. **Client Hello:** The client sends a UDP packet containing its transport parameters and a TLS 1.3 "Client Hello" (Diffie-Hellman keys).
+    
+2. **Server Hello:** The server responds with its own keys, transport parameters, and a certificate.
+    
+
+**Result:** After **one** round trip (1-RTT), the connection is established AND encrypted.
+
+## How 0-RTT Works (The "Second Date")
+
+0-RTT (Zero Round Trip Time) allows a client to send **encrypted data** in the very first packet of a new connection. This is only possible if the client and server have spoken before.
+
+### The Mechanism: Session Resumption
+
+1. **The First Connection:** During the initial 1-RTT handshake, the server sends the client a **Session Ticket** (specifically a NewSessionTicket frame in TLS 1.3). This ticket contains a "Pre-Shared Key" (PSK) and the server's transport parameters, encrypted so only the server can read it.
+    
+2. **The Cache:** The client saves this ticket locally.
+    
+3. **The Re-connection (0-RTT):** When the client wants to connect again, it doesn't wait for a handshake. It sends:
+    
+    - The **Session Ticket**.
+        
+    - The **Encrypted Data** (using the PSK from the ticket).
+        
+4. **Server Receipt:** The server decrypts the ticket, gets the key, decrypts the data, and processes the request immediately.
+    
+
+> **Crucial Note:** The client "guesses" that the server will accept the ticket and sends the data right away. If the ticket is expired or rejected, the server just falls back to a 1-RTT handshake.
+
+
+## The "Catch": Replay Attacks
+
+0-RTT is fast, but it has a significant security trade-off: **Replay Attacks**.
+
+Because the first packet (the one containing the data) is self-contained, a hacker could intercept that UDP packet and "replay" it to the server 100 times.
+
+- **Safe for:** "GET" requests (reading data). Replaying a request for `index.html` just sends the same page back.
+    
+- **Dangerous for:** "POST" requests (writing data). Replaying a request like `POST /pay?amount=100` could result in multiple charges.
+    
+
+**System Design Tip:** Most browsers and servers only allow 0-RTT for "Idempotent" requests (requests that don't change state, like GET).
 
 ----
 
