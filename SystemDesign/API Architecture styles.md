@@ -18,6 +18,7 @@ In practice, REST means: **resources are nouns in URLs** (`/users/42/orders`), *
 
 **Use when:** Public APIs, CRUD applications, when you need broad client compatibility, microservices communicating across organizations.
 
+----
 ### SOAP — The Enterprise Veteran
 
 SOAP (Simple Object Access Protocol) is a _protocol_ (not just a style) for exchanging structured information using XML. Every SOAP request is an XML envelope with a header and body, sent over HTTP (or SMTP, or JMS). The service is described by a **WSDL** (Web Services Description Language) file — a machine-readable contract that clients can use to auto-generate stubs.
@@ -28,6 +29,7 @@ SOAP has built-in standards for security (WS-Security), transactions (WS-AtomicT
 
 **Use when:** Enterprise integrations, banking/financial systems, healthcare (HL7/FHIR historically used SOAP), legacy system integration where a WSDL contract is required.
 
+----
 ### GraphQL — Ask for Exactly What You Need
 
 GraphQL is a query language _and_ a runtime for APIs, open-sourced by Facebook in 2015. Instead of multiple REST endpoints each returning fixed shapes, GraphQL exposes a **single endpoint** (`/graphql`) with a **strongly-typed schema**. Clients write queries that describe _exactly_ what fields they want — no more, no less. A mobile app can request a lightweight version of a resource; a desktop app can request the full version. Same endpoint, same server, zero over-fetching.
@@ -38,6 +40,7 @@ GraphQL has three operation types: **Query** (read), **Mutation** (write), **Sub
 
 **Use when:** Diverse clients (web + mobile + TV) with different data needs, rapid frontend iteration, when over/under-fetching is a real problem.
 
+----
 ### gRPC — High-Performance Internal APIs
 
 gRPC (Google Remote Procedure Call) is a framework that lets you call a function on a remote server as if it were local. You define your service and messages in **Protocol Buffers** (`.proto` files) — a binary serialization format 3–10x smaller and faster than JSON. The `.proto` file is compiled to client and server stubs in your target language. Wire format is binary HTTP/2.
@@ -48,6 +51,7 @@ gRPC supports four communication patterns: unary (one request, one response), se
 
 **Use when:** Internal microservice communication, polyglot services where you want a strict typed contract, high-throughput systems, when latency and payload size matter (e.g., ML inference APIs, inter-datacenter calls).
 
+----
 ### WebSockets — Full-Duplex Persistent Connection
 
 WebSockets is an application-layer protocol that starts as an HTTP/1.1 request with an `Upgrade: websocket` header. The server agrees, and the connection _transforms_ — no more HTTP request-response cycles. Both sides now have a persistent, **full-duplex** channel: either party can send a message at any time, with low overhead (just a few bytes of framing per message, no HTTP headers).
@@ -58,6 +62,7 @@ The connection lives until someone closes it (or the network drops). The server 
 
 **Use when:** Chat, collaborative tools, live dashboards, gaming, any scenario where the server needs to push data frequently.
 
+----
 ### Server-Sent Events (SSE) — One-Way Server Push
 
 SSE is HTTP — nothing more. The client makes a normal GET request, and the server responds with `Content-Type: text/event-stream`. Instead of closing the connection after sending the body, the server _keeps it open_ and streams newline-delimited events whenever it has something to say. The client's browser handles reconnection automatically (with `Last-Event-ID` to resume), de-duplicates messages, and fires `EventSource` events in JavaScript.
@@ -68,6 +73,7 @@ SSE is **unidirectional** (server → client only) and simpler than WebSockets i
 
 **Use when:** AI token streaming, live notifications, news feeds, stock tickers, progress updates — anything where the server has data to push but the client never needs to send data back over the same channel.
 
+----
 ### Event-Driven Architecture / Pub-Sub — Decoupled Async Messaging
 
 EDA isn't a protocol or an API style — it's a system architecture pattern. Services communicate by **publishing events** to a broker (Kafka, RabbitMQ, AWS SNS/SQS, Google Pub/Sub) rather than calling each other directly. Subscribers declare interest in event types and receive them asynchronously.
@@ -78,6 +84,7 @@ The key properties: **temporal decoupling** (publisher and subscriber don't need
 
 **Use when:** Microservice integration, order processing pipelines, notification systems, event sourcing, any workflow where services should be loosely coupled.
 
+----
 ### Webhooks — The Reverse API
 
 A webhook is conceptually the inverse of a REST API call. Instead of your server calling Stripe's API to ask "did anything happen?", you register a URL with Stripe, and Stripe calls _your_ server when something happens. The payload is a normal HTTP POST with JSON.

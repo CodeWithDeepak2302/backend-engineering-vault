@@ -27,6 +27,7 @@ This sounds like a bug, but it's a feature for latency-critical applications. In
 **Use when:** Real-time media, gaming, DNS lookups, IoT sensors — anywhere stale data is worse than lost data.
 
 
+----
 ### HTTP — The Web's Language
 
 HTTP (HyperText Transfer Protocol) is a request-response protocol built on TCP. HTTP/1.1 has one request per connection at a time (head-of-line blocking). HTTP/2 introduced **multiplexing** — many requests over one TCP connection concurrently, plus header compression (HPACK) and server push. HTTP/3 (the latest) runs on QUIC instead of TCP, eliminating TCP's head-of-line blocking entirely.
@@ -35,6 +36,36 @@ HTTP is stateless by design — each request is independent. This simplicity is 
 
 **Use when:** All standard web communication. REST APIs, browsers, CDNs — everything.
 
+### What is Head-of-Line (HOL) Blocking?
+
+Imagine a single-lane grocery checkout. If the person at the front of the line has a massive cart (a large image or a slow database query), everyone behind them is stuck until that transaction finishes.
+
+In networking:
+
+- The client sends a request for `index.html`.
+   
+- The server processes it and sends it back.
+  
+- **Only then** can the client request `style.css`.
+  
+- If `index.html` takes 2 seconds to generate, the `style.css` and `script.js` are "blocked" at the head of the line.
+
+## HTTP/2: The Binary Framing Layer & Multiplexing
+
+HTTP/2 solved HOL blocking by introducing a **Binary Framing Layer**. Instead of treating the request as a single block of text, it breaks every message into small, independent **frames**.
+
+### How Multiplexing Works
+
+Multiplexing allows the client and server to interleave multiple requests and responses over a **single TCP connection** simultaneously.
+
+- **Streams:** A bidirectional flow of bytes. Each "request/response" pair is assigned a unique **Stream ID**.
+    
+- **Messages:** A complete sequence of frames that map to a logical request or response.
+    
+- **Frames:** The smallest unit of communication (e.g., HEADERS frame, DATA frame).
+
+
+----
 ### QUIC — HTTP/3's Engine
 
 QUIC (Quick UDP Internet Connections) was built by Google, now an IETF standard. It runs on UDP but _reimplements_ TCP's reliability and TLS's security — all baked into one protocol at the user-space level (not the kernel). The key win: **0-RTT connection establishment** for known servers (you can send data in the very first packet), and **independent streams** (a lost packet only blocks its own stream, not every other request on the connection — solving TCP's head-of-line blocking).
@@ -43,6 +74,7 @@ QUIC is what makes HTTP/3 fast. It's also used internally by YouTube, Google Sea
 
 **Use when:** High-performance web apps, especially on unreliable networks (mobile). You generally use it implicitly through HTTP/3.
 
+----
 ### WebRTC — Peer-to-Peer Real-Time
 
 WebRTC (Web Real-Time Communication) is a suite of protocols enabling direct browser-to-browser communication for audio, video, and data — without a server in the media path. It uses UDP underneath (via ICE/STUN/TURN for NAT traversal), DTLS for encryption, and SRTP for media transport.
@@ -51,15 +83,18 @@ The flow: two peers exchange _SDP offer/answer_ messages (via a signaling server
 
 **Use when:** Video calls (Google Meet, Jitsi), screen sharing, multiplayer browser games, peer-to-peer file transfer.
 
-|Protocol|Layer|Connection|Reliability|Latency|Direction|Key Feature|Pros|Cons|Use When|
-|---|---|---|---|---|---|---|---|---|---|
-|**TCP/IP**|Transport|Connection-oriented|✅ Guaranteed, ordered|Medium (handshake)|Full-duplex|3-way handshake, ACKs, retransmit|Reliable delivery, universal support|Handshake overhead, head-of-line blocking|All internet communication needing reliability|
-|**UDP**|Transport|Connectionless|❌ Best-effort, unordered|Very low|Full-duplex|No handshake, no ACK, just send|Ultra-low latency, no connection cost|Packet loss, no ordering, no congestion control|Gaming, DNS, real-time media, IoT sensors|
-|**HTTP/1.1**|App|Over TCP|✅ (via TCP)|Medium-High|Request-response|Text-based, stateless, pipelining|Universal, human-readable, cacheable|Head-of-line blocking, verbose headers|Standard web APIs, browsers|
-|**HTTP/2**|App|Over TCP|✅ (via TCP)|Low-Medium|Request-response + push|Multiplexing, HPACK compression, server push|Multiple streams, header compression|TCP head-of-line blocking still exists|Modern web apps, gRPC transport|
-|**HTTP/3**|App|Over QUIC (UDP)|✅ (QUIC-level)|Very Low|Request-response + push|0-RTT resumption, no TCP blocking|Fastest, mobile-friendly, independent streams|Newer, less middleware support, UDP firewalls|High-performance web, CDNs, streaming|
-|**QUIC**|Hybrid|Over UDP|✅ (reimplemented in user-space)|Very Low (0-RTT)|Full-duplex, multiplexed streams|TLS 1.3 built-in, 0-RTT, no HOL blocking|Combines UDP speed + TCP reliability + TLS|Complex to implement, UDP blocked sometimes|HTTP/3 transport, low-latency apps|
-|**WebRTC**|Hybrid|Peer-to-peer over UDP|Partial (SRTP for media, SCTP for data)|Very Low|Full-duplex P2P|ICE/STUN/TURN NAT traversal, DTLS encryption|Direct P2P, no media server needed, browser native|Complex signaling, NAT traversal issues, needs TURN fallback|Video calls, screen share, P2P data transfer|
+----
+
+
+| Protocol     | Layer     | Connection            | Reliability                             | Latency            | Direction                        | Key Feature                                  | Pros                                               | Cons                                                         | Use When                                       |
+| ------------ | --------- | --------------------- | --------------------------------------- | ------------------ | -------------------------------- | -------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------- |
+| **TCP/IP**   | Transport | Connection-oriented   | ✅ Guaranteed, ordered                   | Medium (handshake) | Full-duplex                      | 3-way handshake, ACKs, retransmit            | Reliable delivery, universal support               | Handshake overhead, head-of-line blocking                    | All internet communication needing reliability |
+| **UDP**      | Transport | Connectionless        | ❌ Best-effort, unordered                | Very low           | Full-duplex                      | No handshake, no ACK, just send              | Ultra-low latency, no connection cost              | Packet loss, no ordering, no congestion control              | Gaming, DNS, real-time media, IoT sensors      |
+| **HTTP/1.1** | App       | Over TCP              | ✅ (via TCP)                             | Medium-High        | Request-response                 | Text-based, stateless, pipelining            | Universal, human-readable, cacheable               | Head-of-line blocking, verbose headers                       | Standard web APIs, browsers                    |
+| **HTTP/2**   | App       | Over TCP              | ✅ (via TCP)                             | Low-Medium         | Request-response + push          | Multiplexing, HPACK compression, server push | Multiple streams, header compression               | TCP head-of-line blocking still exists                       | Modern web apps, gRPC transport                |
+| **HTTP/3**   | App       | Over QUIC (UDP)       | ✅ (QUIC-level)                          | Very Low           | Request-response + push          | 0-RTT resumption, no TCP blocking            | Fastest, mobile-friendly, independent streams      | Newer, less middleware support, UDP firewalls                | High-performance web, CDNs, streaming          |
+| **QUIC**     | Hybrid    | Over UDP              | ✅ (reimplemented in user-space)         | Very Low (0-RTT)   | Full-duplex, multiplexed streams | TLS 1.3 built-in, 0-RTT, no HOL blocking     | Combines UDP speed + TCP reliability + TLS         | Complex to implement, UDP blocked sometimes                  | HTTP/3 transport, low-latency apps             |
+| **WebRTC**   | Hybrid    | Peer-to-peer over UDP | Partial (SRTP for media, SCTP for data) | Very Low           | Full-duplex P2P                  | ICE/STUN/TURN NAT traversal, DTLS encryption | Direct P2P, no media server needed, browser native | Complex signaling, NAT traversal issues, needs TURN fallback | Video calls, screen share, P2P data transfer   |
 
 Protocol Stack Relationship
 
