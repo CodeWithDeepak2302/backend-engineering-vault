@@ -209,6 +209,63 @@ Let's say Alice sends:
 Mallory copies this packet and replays it 5 minutes later. Bob receives it, decrypts it, and looks at the QUIC header. He sees `Sequence #1`. Bob's internal logic says: _"Wait, my counter is already at Sequence #45. I already processed Sequence #1."_ Bob instantly drops the packet as a duplicate.
 
 
+How does it ensures guarantees:
+
+## The TCP Flaw: Retransmission Ambiguity
+
+In TCP, sequence numbers are tied directly to the data being sent. Let's say TCP sends **Packet #5**. The sender waits for an acknowledgment (ACK), but a timeout happens. The sender assumes Packet #5 was dropped, so it **re-sends Packet #5** (with the exact same sequence number).
+
+Then, the sender receives an "ACK for #5". Here is the ambiguity: **Which Packet #5 is the receiver ACKing?**
+
+- Was the first Packet #5 just delayed, and the ACK is for the original?
+    
+- Or was the first one lost, and the ACK is for the retransmission?
+    
+
+Because TCP can't tell the difference, it struggles to accurately measure network latency (Round Trip Time, or RTT), which messes up its congestion control.
+
+
+## QUIC's Genius: Strictly Increasing Packet Numbers
+
+QUIC solves this by separating the "network packet" from the "application data".
+
+In QUIC, **Packet Numbers never, ever repeat.** They are strictly increasing. If a packet is lost, QUIC does _not_ re-transmit the same packet number. Instead, it takes the data that was inside the lost packet and packages it into a brand new packet with a **new** number.
+
+**The Flow:**
+
+1. QUIC sends **Packet #5** (containing chunk A of a file).
+    
+2. A timeout occurs; Packet #5 is assumed lost.
+    
+3. QUIC puts chunk A into **Packet #8** and sends it.
+    
+4. QUIC receives an "ACK for #8".
+    
+
+Because the sender received an ACK specifically for #8, it knows with 100% certainty exactly when that packet was sent and received. There is zero ambiguity. Network latency calculations remain perfectly accurate.
+
+## How Data is Reassembled: Stream Offsets
+
+If packet numbers are always changing, how does the receiving browser know how to stitch the file back together?
+
+This is where QUIC's **Stream Offsets** come in. Inside the QUIC packet, the data is tagged with its exact byte position (offset) within the specific stream.
+
+- **Packet #5** contains: `Stream 1, Bytes 1000-1500`.
+    
+- (Packet #5 is lost in the network)
+    
+- **Packet #8** contains: `Stream 1, Bytes 1000-1500`.
+    
+
+The network layer only cares about tracking Packet #8 to ensure delivery. The application layer looks _inside_ Packet #8, sees the tag "Bytes 1000-1500," and slots the data into the correct place in the file.
+
+## Smarter, Richer ACKs
+
+When UDP drops a packet, it often drops them in bursts. TCP struggles with this because its standard ACKs are cumulative (e.g., "I have received everything up to byte 1000"). If a chunk in the middle goes missing, TCP can panic and drastically slow down the connection.
+
+QUIC uses **highly expressive ACK frames**. A single QUIC ACK can acknowledge up to **256 distinct blocks** of received packets. A QUIC receiver can essentially say: _"I received packets 1-10, missed 11 and 12, received 13-50, missed 51, and received 52-100."_ This allows the sender to surgically re-transmit _only_ the missing data in new packets (e.g., packaging the missing bytes into Packets 101, 102, and 103) without slowing down the rest of the stream.
+
+
 ----
 ### WebRTC — Peer-to-Peer Real-Time
 
