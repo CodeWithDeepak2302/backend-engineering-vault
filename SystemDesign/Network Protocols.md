@@ -85,20 +85,11 @@ Even if the lost packet belonged to Stream 1, Stream 2 and Stream 3 are now bloc
 ----
 ### QUIC — HTTP/3's Engine
 
-QUIC (Quick UDP Internet Connections) was built by Google, now an IETF standard. It runs on UDP but _reimplements_ TCP's reliability and TLS's security — all baked into one protocol at the user-space level (not the kernel). The key win: **0-RTT connection establishment** for known servers (you can send data in the very first packet), and **independent streams** (a lost packet only blocks its own stream, not every other request on the connection — solving TCP's head-of-line blocking).
+QUIC (Quick UDP Internet Connections) was built by Google, now an IETF standard. It runs on UDP but _reimplements_ TCP's reliability and  [[API Security]] TLS's security — all baked into one protocol at the user-space level (not the kernel). The key win: **0-RTT connection establishment** for known servers (you can send data in the very first packet), and **independent streams** (a lost packet only blocks its own stream, not every other request on the connection — solving TCP's head-of-line blocking).
 
 QUIC is what makes HTTP/3 fast. It's also used internally by YouTube, Google Search, and is increasingly the backbone of modern CDNs.
 
 **Use when:** High-performance web apps, especially on unreliable networks (mobile). You generally use it implicitly through HTTP/3.
-
-----
-### WebRTC — Peer-to-Peer Real-Time
-
-WebRTC (Web Real-Time Communication) is a suite of protocols enabling direct browser-to-browser communication for audio, video, and data — without a server in the media path. It uses UDP underneath (via ICE/STUN/TURN for NAT traversal), DTLS for encryption, and SRTP for media transport.
-
-The flow: two peers exchange _SDP offer/answer_ messages (via a signaling server you build), use STUN/TURN to figure out their public addresses, then establish a direct peer-to-peer connection. The signaling channel can be anything — WebSockets, REST, even email. WebRTC defines only what happens _after_ the connection.
-
-**Use when:** Video calls (Google Meet, Jitsi), screen sharing, multiplayer browser games, peer-to-peer file transfer.
 
 ## The Core Architecture of QUIC
 
@@ -154,6 +145,78 @@ Because the first packet (the one containing the data) is self-contained, a hack
     
 
 **System Design Tip:** Most browsers and servers only allow 0-RTT for "Idempotent" requests (requests that don't change state, like GET).
+
+
+## The 1-RTT Handshake: Why it is Immune to Replay
+
+In a standard 1-RTT setup, Alice and Bob combine their own temporary secrets to create a completely unique lock for this specific conversation.
+
+- **Message 1 (Alice ➔ Bob):** "Hi Bob, I want to connect. My random number (Nonce) for today is **12345**."
+    
+- **Message 2 (Bob ➔ Alice):** "Hi Alice. My random number for today is **98765**. Let's mix our numbers together to make our session key."
+    
+- _Both calculate the key:_ `Key = f(12345 + 98765 + Secrets)`.
+    
+
+**The Replay Attack (Mallory's Attempt):** Tomorrow, Mallory wants to trick Bob. She takes the exact packet Alice sent yesterday and replays it.
+
+- **Mallory ➔ Bob:** "Hi Bob, I want to connect. My random number for today is **12345**." _(Mallory just hit play on her recording)._
+    
+- **Bob ➔ Mallory:** "Hi Alice. My random number for today is **55555**. Let's mix our numbers."
+    
+- **Why Mallory Fails:** Bob generated a _new_ random number (**55555**). The session key is now `f(12345 + 55555 + Secrets)`. Mallory cannot calculate this new key because she doesn't have Alice's underlying private secrets to do the math. The connection drops.
+
+
+## The 0-RTT Vulnerability: How Replay Works
+
+In 0-RTT, Alice is in a hurry. She and Bob agreed yesterday to use a Pre-Shared Key (PSK), let's call it **"BlueBird"**.
+
+- **Message 1 (Alice ➔ Bob):** `[Encrypted using "BlueBird": POST /transfer?amount=$100]`
+    
+
+**The Replay Attack (Mallory's Attempt):** Mallory intercepts this packet. She cannot read it because she doesn't know the word "BlueBird." But she knows it’s a valid packet going to Bob's bank server.
+
+- **Mallory ➔ Bob:** `[Encrypted using "BlueBird": POST /transfer?amount=$100]`
+    
+- **Why Mallory Succeeds:** Bob receives the packet. He checks his system and sees, "Ah, 'BlueBird' is a valid PSK for Alice." He decrypts it successfully and processes the $100 transfer.
+    
+- Mallory hits replay 10 times, and Bob processes 10 transfers. Bob has no way of knowing this is a recording because **he hasn't had a chance to inject a fresh random number yet.**
+
+## The Transition to Safety: Why Subsequent Messages are Secure
+
+You asked: _If the first packet can be replayed, why can't the rest of the conversation be replayed?_
+
+This is the brilliant part of the protocol design. The 0-RTT vulnerability **only exists for the very first split-second**, before Bob replies.
+
+Here is what happens immediately after Alice sends that first 0-RTT message:
+
+- **Message 1 (Alice ➔ Bob):** `[0-RTT: POST /transfer?amount=$100]`
+    
+- **Message 2 (Bob ➔ Alice):** "I got your transfer. By the way, here is my new random number for today: **77777**. Let's switch to a new, fresh session key right now."
+    
+
+**From Message 3 onward, the "BlueBird" key is thrown in the trash.** They are now using a brand new key derived from Bob's fresh random number (**77777**).
+
+If Mallory tries to replay anything from the middle of the conversation, it fails for two reasons:
+
+### Defense Mechanism A: Sequence Numbers
+
+Let's say Alice sends:
+
+- **Message 3:** `[Encrypted with New Key | Sequence #1: GET /balance]`
+    
+
+Mallory copies this packet and replays it 5 minutes later. Bob receives it, decrypts it, and looks at the QUIC header. He sees `Sequence #1`. Bob's internal logic says: _"Wait, my counter is already at Sequence #45. I already processed Sequence #1."_ Bob instantly drops the packet as a duplicate.
+
+
+----
+### WebRTC — Peer-to-Peer Real-Time
+
+WebRTC (Web Real-Time Communication) is a suite of protocols enabling direct browser-to-browser communication for audio, video, and data — without a server in the media path. It uses UDP underneath (via ICE/STUN/TURN for NAT traversal), DTLS for encryption, and SRTP for media transport.
+
+The flow: two peers exchange _SDP offer/answer_ messages (via a signaling server you build), use STUN/TURN to figure out their public addresses, then establish a direct peer-to-peer connection. The signaling channel can be anything — WebSockets, REST, even email. WebRTC defines only what happens _after_ the connection.
+
+**Use when:** Video calls (Google Meet, Jitsi), screen sharing, multiplayer browser games, peer-to-peer file transfer.
 
 ----
 
