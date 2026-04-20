@@ -2,7 +2,7 @@
 
 **An API Architecture Style** is a design pattern for _how systems expose and communicate functionality_ to each other — it lives at the application design layer. Think of it as _how you design the vehicles and what roads they're allowed to use_.
 
-APU Architecture Style define
+API Architecture Style define
 1. How clients talk to servers
 2. How requests are structured
 3. how responses are shaped
@@ -135,12 +135,86 @@ Think of GraphQL like a **Customizable Buffet**:
 
 **Use when:** Diverse clients (web + mobile + TV) with different data needs, rapid frontend iteration, when over/under-fetching is a real problem.
 
+Example:
+##### 1. Define the Data Shapes
+type User {
+  id: ID!
+  username: String!
+  email: String!
+  posts: [Post!]!     # A user can have many posts
+}
+
+type Post {
+  id: ID!
+  title: String!
+  content: String!
+  author: User!       # Every post has one author
+  publishedAt: String
+}
+
+##### 2. Define how we FETCH data
+type Query {
+  getUser(id: ID!): User
+  recentPosts(limit: Int): [Post!]!
+}
+
+##### 3. Define how we CHANGE data
+type Mutation {
+  createPost(title: String!, content: String!, authorId: ID!): Post!
+}
+
+#####  The Query (Fetching Data)
+
+In REST, to get a user and their posts, you might have to hit two endpoints. In GraphQL, you do it in **one request**.
+
+**The Request:** You send this JSON-like structure to the server.
+
+GraphQL
+
+```
+query GetUserData {
+  getUser(id: "u123") {
+    username
+    posts {
+      title
+      publishedAt
+    }
+  }
+}
+```
+
+**The Response:** The server responds with a JSON object that mirrors the shape of your query exactly.
+
+JSON
+
+```
+{
+  "data": {
+    "getUser": {
+      "username": "dev_deepak",
+      "posts": [
+        {
+          "title": "Understanding QUIC Handshakes",
+          "publishedAt": "2026-04-19"
+        },
+        {
+          "title": "The Beauty of B+ Trees",
+          "publishedAt": "2026-03-15"
+        }
+      ]
+    }
+  }
+}
+```
+
+
+
 ----
 ### gRPC — High-Performance Internal APIs
 
 gRPC (Google Remote Procedure Call) is a framework that lets you call a function on a remote server as if it were local. You define your service and messages in **Protocol Buffers** (`.proto` files) — a binary serialization format 3–10x smaller and faster than JSON. The `.proto` file is compiled to client and server stubs in your target language. Wire format is binary HTTP/2.
 
-gRPC supports four communication patterns: unary (one request, one response), server streaming, client streaming, and **bidirectional streaming** — all over a single HTTP/2 connection. Compared to REST+JSON, gRPC is dramatically faster (binary over HTTP/2 with multiplexing), but requires a `.proto` contract and gRPC toolchain. Browser support requires gRPC-Web (a proxy layer), which limits direct browser usage.
+gRPC supports four communication patterns: unary (one request, one response), server streaming, client streaming, and **bidirectional streaming** — all over a single HTTP/2 connection. Compared to REST+JSON, gRPC is dramatically faster (binary over HTTP/2 with multiplexing), but requires a `.proto` contract and gRPC toolchain. **==Browser support requires gRPC-Web (a proxy layer), which limits direct browser usage.==**
 
 **Implement with:** Official libraries in Go, Java, Python, C#, Node, Ruby, Dart, Kotlin, Swift. Proto compiler generates stubs.
 
@@ -168,12 +242,27 @@ SSE is **unidirectional** (server → client only) and simpler than WebSockets i
 
 **Use when:** AI token streaming, live notifications, news feeds, stock tickers, progress updates — anything where the server has data to push but the client never needs to send data back over the same channel.
 
+
+| **Feature**    | **Standard REST (Polling)**               | **WebSockets**                        | **SSE (Server-Sent Events)**               |
+| -------------- | ----------------------------------------- | ------------------------------------- | ------------------------------------------ |
+| **Direction**  | Client asks $\rightarrow$ Server answers. | Both can talk at once (Full Duplex).  | Server pushes to Client (Uni-directional). |
+| **Protocol**   | Standard HTTP.                            | Upgrades to a new protocol (`ws://`). | **Standard HTTP.**                         |
+| **Efficiency** | High overhead (new headers every time).   | Low overhead once open.               | **Very low overhead.**                     |
+| **Resilience** | Good.                                     | Complex (requires "heartbeats").      | **Automatic reconnection built-in.**       |
+| **Example**    | Checking for new emails.                  | High-speed trading or Chat apps.      | **AI streaming, News feeds.**              |
+When you ask an AI a second question, you aren't sending that question _through_ the open SSE stream.
+
+1. **Query 1:** Client sends a **POST** request $\rightarrow$ Server opens **SSE Stream A** $\rightarrow$ Server sends tokens $\rightarrow$ **Stream A Closes.**
+    
+2. **Query 2:** Client sends a **brand new POST** request $\rightarrow$ Server opens **SSE Stream B** $\rightarrow$ Server sends tokens $\rightarrow$ **Stream B Closes.**
+
+
 ----
 ### Event-Driven Architecture / Pub-Sub — Decoupled Async Messaging
 
-EDA isn't a protocol or an API style — it's a system architecture pattern. Services communicate by **publishing events** to a broker (Kafka, RabbitMQ, AWS SNS/SQS, Google Pub/Sub) rather than calling each other directly. Subscribers declare interest in event types and receive them asynchronously.
+[[Event Driven Architecture]] isn't a protocol or an API style — it's a system architecture pattern. Services communicate by **publishing events** to a broker (Kafka, RabbitMQ, AWS SNS/SQS, Google Pub/Sub) rather than calling each other directly. Subscribers declare interest in event types and receive them asynchronously.
 
-The key properties: **temporal decoupling** (publisher and subscriber don't need to be running at the same time), **spatial decoupling** (publisher doesn't know who's subscribing), and **scale decoupling** (a Kafka topic can fan out to 100 consumers with no change to the producer). Events are immutable facts — "OrderPlaced", "UserSignedUp", "PaymentFailed". This enables event sourcing, CQRS, and audit logs as first-class patterns. The complexity: eventual consistency is hard to reason about, debugging requires distributed tracing, and message ordering guarantees vary by broker.
+The key properties: **temporal decoupling** (publisher and subscriber don't need to be running at the same time), **spatial decoupling** (publisher doesn't know who's subscribing), and **scale decoupling** (a Kafka topic can fan out to 100 consumers with no change to the producer). Events are immutable facts — "OrderPlaced", "UserSignedUp", "PaymentFailed". This enables [[Event Sourcing and CQRS]] event sourcing, CQRS, and audit logs as first-class patterns. The complexity: eventual consistency is hard to reason about, debugging requires distributed tracing, and message ordering guarantees vary by broker.
 
 **Implement with:** Apache Kafka (high-throughput event streaming), RabbitMQ (flexible routing), AWS SQS/SNS, Redis Pub/Sub (ephemeral, simple), NATS.
 

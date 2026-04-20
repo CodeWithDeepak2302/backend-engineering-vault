@@ -1,5 +1,6 @@
 {
   "alwaysUpdateLinks": true,
   "spellcheck": false,
-  "readableLineLength": false
+  "readableLineLength": false,
+  "showInlineTitle": true
 }
