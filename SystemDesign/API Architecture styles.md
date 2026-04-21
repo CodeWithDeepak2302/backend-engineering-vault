@@ -208,6 +208,117 @@ JSON
 ```
 
 
+Mostly Post is used to comunicate to the server.
+If you tried to fit a complex GraphQL query into a **GET** request, you’d run into the "URL Wall" very quickly. Below is the reason
+#### The Payload Size (The Primary Reason)
+
+In a real-world L6-level system, GraphQL queries aren't just three lines. Once you start using **Fragments** (reusable pieces of queries) and fetching deeply nested relationships (e.g., _User $\rightarrow$ Posts $\rightarrow$ Comments $\rightarrow$ Authors $\rightarrow$ Badges_), the query string itself can easily exceed **10KB or 20KB**.
+
+- **GET (URL-based):** Most browsers and load balancers (like Nginx or AWS ALB) will truncate or reject a URL longer than **8KB**.
+    
+- **POST (Body-based):** You can send a query that is megabytes long if you really want to (though you shouldn't!).
+
+
+#### The "POST Caching" Trade-off (Interview Gold)
+In a system design interview, a common follow-up is: **"If you use POST for everything, don't you lose the benefit of HTTP Caching?"**
+
+You are 100% correct. Browsers and CDNs (like Cloudflare) will **not** cache a POST request because they assume it's changing data on the server.
+
+**The Solution: Persisted Queries** To get the best of both worlds, high-scale systems use this flow:
+
+1. **Build Time:** The client sends the giant query to the server once.
+    
+2. **Mapping:** The server saves the query and gives it a **Hash** (e.g., `5f3a2b...`).
+    
+3. **The Request:** At runtime, the client just sends a **GET** request to: `https://api.site.com/graphql?extensions={"persistedQuery":{"sha256Hash":"5f3a2b..."}}`
+    
+4. **Result:** Now it’s a tiny GET request, it fits in the URL, and it's **100% cacheable** by a CD
+
+
+#### 1. The "Network N+1" (What GraphQL Solves)
+
+In REST, if you want a list of 10 users and their posts:
+
+1. **Request 1:** `GET /users` (returns 10 user IDs).
+    
+2. **Requests 2-11:** `GET /posts?userId=1`, `GET /posts?userId=2` ... (10 more trips). **Total: 11 trips (N+1) over the internet.**
+    
+
+GraphQL solves this. You send **one** query, and the server sends **one** response. The user sees no latency.
+
+
+#### 2. The "Database N+1" (The GraphQL Problem)
+
+The problem moves from the **Network** to the **Server's execution engine**.
+
+GraphQL executes using **Resolvers**. A resolver is a small function responsible for fetching the data for one specific field. The engine executes these in a "nested" way.
+
+Imagine this query:
+
+GraphQL
+
+```
+query {
+  users {    # Resolver A
+    name
+    posts {  # Resolver B
+      title
+    }
+  }
+}
+```
+
+**How the Server executes this (The bad way):**
+
+1. **Step 1:** The `users` resolver runs: `SELECT * FROM users;` (Returns 10 users).
+    
+2. **Step 2:** For **each** of those 10 users, the engine calls the `posts` resolver separately.
+    
+    - `SELECT * FROM posts WHERE userId = 1;`
+        
+    - `SELECT * FROM posts WHERE userId = 2;`
+        
+    - ...and so on, 10 times.
+        
+
+**The result:** Your backend just hit the database **11 times** (1 for users + 10 for posts). If you have 100 users, that’s 101 database queries. This will destroy your database performance at scale.
+
+
+#### 3. The Solution: DataLoader (Batching)
+
+To fix this, you use a pattern called **DataLoader**. Think of it as a "Wait and Batch" utility.
+
+Instead of the `posts` resolver hitting the database immediately, it says to the DataLoader: _"Hey, I need posts for User 1."_ The DataLoader waits a few milliseconds (the same "tick" of the event loop) to see if anyone else needs posts.
+
+**The Optimized Flow:**
+
+1. **User Resolver:** Hits the DB once for 10 users.
+    
+2. **Posts Resolvers:** All 10 users ask for posts. The DataLoader collects all 10 IDs.
+    
+3. **The Batch:** The DataLoader fires **one** single database query: `SELECT * FROM posts WHERE userId IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10);`
+    
+4. **Distribution:** The DataLoader then distributes the correct posts back to each user in the GraphQL response.
+    
+
+**Total: 2 Database queries.** Much better.
+
+---
+
+#### 4. Why is Caching "Complex"?
+
+In REST, the URL is the "Key." If I hit `/users/1`, the browser or a CDN can cache that entire JSON response under that URL.
+
+In GraphQL:
+
+1. **The URL is always `/graphql`.** You can't cache based on the URL because every request is different.
+    
+2. **The Body is a POST.** Most caches ignore POST bodies.
+    
+3. **Partial Data:** If one user asks for `{ name }` and another asks for `{ name, email }`, the server can't easily reuse the cache because the "shape" of the data is different.
+    
+
+**The Fix:** You have to implement **Object-Level Caching** (usually using Redis) on the backend, where you cache individual objects (like `User:1`) rather than the whole response.
 
 ----
 ### gRPC — High-Performance Internal APIs
@@ -226,6 +337,8 @@ gRPC supports four communication patterns: unary (one request, one response), se
 WebSockets is an application-layer protocol that starts as an HTTP/1.1 request with an `Upgrade: websocket` header. The server agrees, and the connection _transforms_ — no more HTTP request-response cycles. Both sides now have a persistent, **full-duplex** channel: either party can send a message at any time, with low overhead (just a few bytes of framing per message, no HTTP headers).
 
 The connection lives until someone closes it (or the network drops). The server can push data to the client without the client asking. This is the foundation for real-time chat, collaborative editing (Google Docs), live sports scores, trading dashboards, and multiplayer games. The tradeoff: you manage connection state, heartbeats (ping/pong), reconnection logic, and horizontal scaling complexity (sticky sessions or a pub-sub broker to fan out to all server instances).
+
+
 
 **Implement with:** Socket.io (Node, adds reconnection/rooms/namespaces on top), ws (Node, bare WebSocket), Channels (Django), ActionCable (Rails). Native browser `WebSocket` API on the client.
 

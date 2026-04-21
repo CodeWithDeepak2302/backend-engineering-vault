@@ -1,0 +1,4 @@
+
+
+
+cqrs and all
