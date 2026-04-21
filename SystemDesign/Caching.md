@@ -13,7 +13,7 @@ Caching comes up almost every time you need to handle high read traffic. When yo
 
 ## 1. External Caching
 
-An external cache is a standalone cache service that your application talks to over the network. This is what most people think of when they hear "caching." You store frequently accessed data in systems like **Redis** or **Memcached** so you do not have to hit the database every time. 
+An external cache is a standalone cache service that your application talks to over the network. This is what most people think of when they hear "caching." You store frequently accessed data in systems like [[Redis]] or [[MemCache]] so you do not have to hit the database every time. 
 
 * **Advantage:** External caches scale well because every application server can share the same centralized cache.
 
@@ -216,7 +216,8 @@ For example, if you are building Twitter and everyone is viewing Taylor Swift’
 * **Add a local fallback cache:** Keep extremely hot values in-process to avoid pounding Redis.
 * **Apply rate limiting:** Slow down abusive traffic patterns on specific keys.
 
-*Hot key scenarios in distributed caches is not limited to just caches. It is a common problem in distributed systems when millions of users simultaneously request the same viral content, traditional caching assumptions break down. See Scaling Reads.*
+*Hot key scenarios in distributed caches is not limited to just caches. It is a common problem in distributed systems when millions of users simultaneously request the same viral content, traditional caching assumptions break down. See [[Scaling Reads]]*
+
 
 ---
 
